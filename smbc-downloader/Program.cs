@@ -9,14 +9,17 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 // Note: this is probably a terrible example of how to program, but it gets the job done
+// If you're looking at this because I applied for a job, yes I understand OO and design patterns and all that
+// Sometimes they're not necessary, not everything needs to be abstracted into a framework
+// Should really add some error handling though, even if it is a one-off
 namespace smbc_downloader {
 	class Program {
-		
+
 		/**************************************************************
 		/* File names
 		/**************************************************************/
 
-		
+
 		// Everything on the console screen is also piped here
 		static string LogFileName = @"c:\working\smbc\{now}\log.txt";
 
@@ -30,27 +33,32 @@ namespace smbc_downloader {
 		static string StartFileName = @"c:\working\smbc\{now}\start.txt";
 
 		// TODO: Gonna have to go through these and make sure they suit our purposes
-		static string PageName = @"c:\working\smbc\{now}\pages\{i}_{date}_{forthisdate}_{title}.txt";
+		static string PageName = @"c:\working\smbc\{now}\pages\{id}.txt";
 		static string ComicName = @"c:\working\smbc\{now}\comics\{name}";
-		static string Votey = @"c:\working\smbc\{now}\votey\{name}";
-		static string ByDateComicName = @"c:\working\smbc\{now}\comics-bydate\{date}\{name}";
-		static string ByDateVotey = @"c:\working\smbc\{now}\comics-bydate\votey\{name}";
+		static string VoteyName = @"c:\working\smbc\{now}\votey\{name}";
+		static string JsonName = @"c:\working\smbc\{now}\info\{id}_{url}.json";
 
 
 		/**************************************************************
 		/* URLs
 		/**************************************************************/
 
-		
+
 		// First page downloaded everything parses and progresses from here
-		//static string StartURL = @"https://www.smbc-comics.com/comic/2002-09-05";
-		static string StartURL = @"https://www.smbc-comics.com/comic/autonomous";
+		static string StartURL = @"https://www.smbc-comics.com/comic/2002-09-05";
+		//static string StartURL = @"https://www.smbc-comics.com/comic/autonomous";
 
 
 		/**************************************************************
 		/* Other
 		/**************************************************************/
 
+
+		// Log Level
+		// 1 == only top messages
+		// 2 == also, values of properties
+		// 3 == also, match counts
+		static int LogLevel = 1;
 
 		// ID, starts at 0, which comic is this
 		// 0 means nothing has been downloaded, ID++; first comic has ID == 1
@@ -63,7 +71,8 @@ namespace smbc_downloader {
 		static string DiagnosticNow = @"2018-07-26_21-40-28-4545";
 
 		// Null
-		static DateTime VoidDate = new DateTime(1840, 1, 1);
+		// Fun note: this is Caché's $ZD(0)
+		static DateTime VoidDate = new DateTime(1840, 12, 31);
 
 		// Used to fetch everything
 		static WebClient web;
@@ -136,7 +145,7 @@ namespace smbc_downloader {
 		/* Methods
 		/**************************************************************/
 
-		
+
 		// Entry point
 		// Can be used to run test methods instead of the full program if needed
 		static void Main(string[] args) {
@@ -151,26 +160,33 @@ namespace smbc_downloader {
 
 			Log("START");
 
+			// Initialize
 			DateTime lastDate = VoidDate.Date;
 			int forThisDate = 1;
-
 			web = new WebClient();
 			string comicURL = StartURL;
-			string startName = String.Format(StartFileName, Now());
-			Log("page file - " + startName);
-			web.DownloadFile(comicURL, startName);
 
-			string text = File.ReadAllText(startName);
-			ID++;
-			Comic one = ParseComicPage(ID, text, comicURL, lastDate, forThisDate);
-			if (lastDate != one.PublishedDate.Date) {
-				forThisDate = 1;
-			} else {
-				forThisDate++;
+			while ((comicURL != null) && (comicURL != "")) {
+				ID++;
+				string pageName = PageName.Replace("{id}", ID.ToString());
+
+				Log("page file - " + pageName);
+				web.DownloadFile(comicURL, pageName);
+
+				string text = File.ReadAllText(pageName);
+				Comic one = ParseComicPage(ID, text, comicURL, lastDate, forThisDate);
+				SaveAssets(one);
+
+				// Update last date and forthisdate
+				if (lastDate != one.PublishedDate.Date) {
+					forThisDate = 1;
+				} else {
+					forThisDate++;
+				}
+				lastDate = one.PublishedDate.Date;
+
+				comicURL = one.NextURL;
 			}
-			lastDate = one.PublishedDate.Date;
-
-
 
 			Wait();
 
@@ -185,20 +201,25 @@ namespace smbc_downloader {
 
 			// Comic ID
 			one.ID = id;
+			Log("ID: " + id);
 
 			// Fetch date
 			one.fetch_date = DateTime.Now;
 
+			// Page URL
+			one.URL = url;
+			Log("URL: " + url);
+
 			// Published date
 			MatchCollection matches = publishedDateRegex.Matches(text);
-			Log("PublishedDate match count - " + matches.Count);
+			Log("PublishedDate match count - " + matches.Count, 3);
 
 			one.PublishedDate = VoidDate;
 			if (matches.Count == 0) {
 				Error("No PublishedDate");
 			} else {
 				one.PublishedDate = DateTime.Parse(matches[0].Groups[1].Value + " " + matches[0].Groups[2].Value);
-				Log("PublishedDate - " + one.PublishedDate.ToString("yyyy-MM-dd_HH-mm-ss-ffff"));
+				Log("PublishedDate: " + one.PublishedDate.ToString("yyyy-MM-dd_HH-mm"));
 			}
 
 			// For This Date
@@ -207,127 +228,146 @@ namespace smbc_downloader {
 			} else {
 				one.ForThisDate = forThisDate;
 			}
+			Log("ForThisDate: " + one.ForThisDate, 1);
 
 			// Next URL
 			matches = nextURLRegex.Matches(text);
-			Log("NextURL match count - " + matches.Count);
+			Log("NextURL match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No NextURL");
 			} else {
 				one.NextURL = matches[0].Groups[1].Value;
-				Log("NextURL - " + one.NextURL);
+				Log("NextURL - " + one.NextURL, 2);
 			}
 
 			// Short URL
 			matches = shortURLRegex.Matches(url);
-			Log("ShortURL match count - " + matches.Count);
+			Log("ShortURL match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No ShortURL");
 			} else {
 				one.ShortURL = matches[0].Groups[1].Value;
-				Log("ShortURL - " + one.ShortURL);
+				Log("ShortURL - " + one.ShortURL, 2);
 			}
 
 			// Title
 			matches = titleRegex.Matches(text);
-			Log("Title match count - " + matches.Count);
+			Log("Title match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No Title");
 			} else {
 				one.Title = matches[0].Groups[1].Value;
-				Log("Title - " + one.Title);
+				Log("Title - " + one.Title, 2);
 			}
 
 			// CLick URL, Title Text, and Comic URL
 			matches = comicRegex.Matches(text);
-			Log("Comic match count - " + matches.Count);
+			Log("Comic match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No Comic");
 			} else {
 				// Click URL
 				one.ClickURL = matches[0].Groups[1].Value;
-				Log("ClickURL - " + one.ClickURL);
+				Log("ClickURL - " + one.ClickURL, 2);
 
 				// Title Text
 				one.TitleText = matches[0].Groups[2].Value;
-				Log("TitleText - " + one.TitleText);
+				Log("TitleText - " + one.TitleText, 2);
 
 				// Comic URL
 				one.ComicURL = matches[0].Groups[3].Value;
-				Log("ComicURL - " + one.ComicURL);
+				Log("ComicURL - " + one.ComicURL, 2);
 			}
 
 			// Comic Filename
 			matches = comicNameRegex.Matches(one.ComicURL);
-			Log("ComicFilename match count - " + matches.Count);
+			Log("ComicFilename match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No ComicFilename");
 			} else {
 				one.ComicFilename = matches[0].Groups[1].Value;
-				Log("ComicFilename - " + one.ComicFilename);
+				Log("ComicFilename - " + one.ComicFilename, 2);
 			}
 
 			// Votey
 			matches = voteyRegex.Matches(text);
-			Log("Votey match count - " + matches.Count);
+			Log("Votey match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No Votey");
 			} else {
 				one.VoteyURL = matches[0].Groups[1].Value;
-				Log("VoteyURL - " + one.VoteyURL);
+				Log("VoteyURL - " + one.VoteyURL, 2);
 			}
 
 			// Votey Filename
 			matches = comicNameRegex.Matches(one.VoteyURL);
-			Log("VoteyFilename match count - " + matches.Count);
+			Log("VoteyFilename match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No VoteyFilename");
 			} else {
 				one.VoteyFilename = matches[0].Groups[1].Value;
-				Log("VoteyFilename - " + one.VoteyFilename);
+				Log("VoteyFilename - " + one.VoteyFilename, 2);
 			}
 
 			// Buy A Print URL
 			matches = buyAPrintRegex.Matches(text);
-			Log("BuyAPrintURL match count - " + matches.Count);
+			Log("BuyAPrintURL match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No BuyAPrintURL");
 			} else {
 				one.BuyAPrintURL = matches[0].Groups[1].Value;
-				Log("BuyAPrintURL - " + one.BuyAPrintURL);
+				Log("BuyAPrintURL - " + one.BuyAPrintURL, 2);
 			}
 
 			// Today's News Title
 			matches = todaysNewsTitleRegex.Matches(text);
-			Log("TodaysNewsTitle match count - " + matches.Count);
+			Log("TodaysNewsTitle match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No TodaysNewsTitle");
 			} else {
 				one.TodaysNewsTitle = matches[0].Groups[1].Value;
-				Log("TodaysNewsTitle - " + one.TodaysNewsTitle);
+				Log("TodaysNewsTitle - " + one.TodaysNewsTitle, 2);
 			}
 
 			// Today's News Content
 			matches = todaysNewsContentRegex.Matches(text);
-			Log("TodaysNewsContent match count - " + matches.Count);
+			Log("TodaysNewsContent match count - " + matches.Count, 3);
 
 			if (matches.Count == 0) {
 				Error("No TodaysNewsContent");
 			} else {
 				one.TodaysNewsContent = matches[0].Groups[1].Value;
-				Log("TodaysNewsContent - " + one.TodaysNewsContent);
+				Log("TodaysNewsContent - " + one.TodaysNewsContent, 2);
 			}
 
 			return one;
+		}
+
+		// Download comic, votey, etc
+		static void SaveAssets(Comic one) {
+			// Comic
+			string comicFilename = ComicName.Replace("{name}", one.ComicFilename);
+			web.DownloadFile(one.ComicURL, comicFilename);
+			Log(one.ID + ": Downloaded comic");
+
+			// Votey
+			string voteyFilename = VoteyName.Replace("{name}", one.VoteyFilename);
+			web.DownloadFile(one.VoteyURL, voteyFilename);
+			Log(one.ID + ": Downloaded votey");
+
+			// Info
+			string jsonFilename = JsonName.Replace("{id}", one.ID.ToString()).Replace("{url}", one.ShortURL);
+			File.WriteAllText(jsonFilename, one.ToJSON());
+			Log(one.ID + ": Saved JSON info");
 		}
 
 
@@ -339,9 +379,8 @@ namespace smbc_downloader {
 			PageName = PageName.Replace("{now}", NowString);
 			ErrorFileName = ErrorFileName.Replace("{now}", NowString);
 			ComicName = ComicName.Replace("{now}", NowString);
-			Votey = Votey.Replace("{now}", NowString);
-			ByDateComicName = ByDateComicName.Replace("{now}", NowString);
-			ByDateVotey = ByDateVotey.Replace("{now}", NowString);
+			VoteyName = VoteyName.Replace("{now}", NowString);
+			JsonName = JsonName.Replace("{now}", NowString);
 		}
 
 		// Create directories for the files
@@ -352,8 +391,8 @@ namespace smbc_downloader {
 			mkdir(PageName);
 			mkdir(ErrorFileName);
 			mkdir(ComicName);
-			mkdir(Votey);
-			mkdir(ByDateVotey);
+			mkdir(VoteyName);
+			mkdir(JsonName);
 		}
 
 		// Utility method to make a directory
@@ -424,10 +463,16 @@ namespace smbc_downloader {
 		}
 
 		static void Log(string message) {
-			message = LogStamp() + message;
-			Console.WriteLine(message);
-			LogFile.WriteLine(message);
-			LogFile.Flush();
+			Log(message, 1);
+		}
+
+		static void Log(string message, int level) {
+			if (level <= LogLevel) {
+				message = LogStamp() + message;
+				Console.WriteLine(message);
+				LogFile.WriteLine(message);
+				LogFile.Flush();
+			}
 		}
 
 		static void Error(string message) {

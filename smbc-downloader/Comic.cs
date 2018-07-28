@@ -108,7 +108,7 @@ namespace smbc_downloader {
 		}
 
 		public string ToJSON() {
-			return JsonConvert.SerializeObject(this);
+			return JsonConvert.SerializeObject(this, Formatting.Indented);
 		}
 
 		public Comic FromJSON(string text) {
