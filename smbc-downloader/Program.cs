@@ -19,7 +19,7 @@ namespace smbc_downloader {
 		/* File names
 		/**************************************************************/
 
-
+		
 		// Everything on the console screen is also piped here
 		static string LogFileName = @"c:\working\smbc\{now}\log.txt";
 
@@ -27,15 +27,16 @@ namespace smbc_downloader {
 		// TODO: Doesn't look like we're using this yet. Should really add some error handling
 		static string ErrorFileName = @"c:\working\smbc\{now}\error.txt";
 
-		// First page downloaded everything parses and progresses from here
-		// As a default, is the downloaded version of https://www.smbc-comics.com/comic/2002-09-05
-		// TODO: Probably gonna remove this and process StartURL to treat it like every other page
-		static string StartFileName = @"c:\working\smbc\{now}\start.txt";
-
-		// TODO: Gonna have to go through these and make sure they suit our purposes
+		// The response content from the page download
 		static string PageName = @"c:\working\smbc\{now}\pages\{id}.txt";
+
+		// The filename for the comic image
 		static string ComicName = @"c:\working\smbc\{now}\comics\{name}";
+
+		// The filename for the votey image
 		static string VoteyName = @"c:\working\smbc\{now}\votey\{name}";
+
+		// The filename for the json information file
 		static string JsonName = @"c:\working\smbc\{now}\info\{id}_{url}.json";
 
 
@@ -43,26 +44,30 @@ namespace smbc_downloader {
 		/* URLs
 		/**************************************************************/
 
-
+		
 		// First page downloaded everything parses and progresses from here
-		static string StartURL = @"https://www.smbc-comics.com/comic/2002-09-05";
-		//static string StartURL = @"https://www.smbc-comics.com/comic/autonomous";
+		//static string StartURL = @"https://www.smbc-comics.com/comic/2002-09-05";
+		static string StartURL = @"https://www.smbc-comics.com/comic/2013-04-24";
+		//static string StartURL = @"https://www.smbc-comics.com/comic/drugs";
 
 
 		/**************************************************************
 		/* Other
 		/**************************************************************/
 
-
+		
 		// Log Level
 		// 1 == only top messages
 		// 2 == also, values of properties
 		// 3 == also, match counts
+		// 4 == also, debug messages
 		static int LogLevel = 1;
 
 		// ID, starts at 0, which comic is this
 		// 0 means nothing has been downloaded, ID++; first comic has ID == 1
-		static int ID = 0;
+		// If you're starting part way through and not at the beginning set it to the ID of the comic you want minus 1
+		//static int ID = 0;
+		static int ID = 2898;
 
 		// Program start time in yyyy-MM-dd_HH-mm-ss-ffff format
 		static string NowString = Now();
@@ -99,7 +104,9 @@ namespace smbc_downloader {
 		// Group 1: url clicking comic goes to (used for Soonish and stuff)
 		// Group 2: title text
 		// Group 3: url of comic image
-		static Regex comicRegex = new Regex(@"<div id=""cc-comicbody""><a href=""(.*?)""><img title=""(.*?)"" src=""(.*?)"" id=""cc-comic"" \/>");
+		// The (?:\t)* in src is because id=2899 2013-04-24 has it
+		// The (?:\r\n)* in src is because id=1234 2008-09-04 has it
+		static Regex comicRegex = new Regex(@"<div id=""cc-comicbody""><a href=""(.*?)""><img title=""(.*?)"" src=""(.*?)(?:\t)*(?:\r\n)*"" id=""cc-comic"" \/>");
 
 		// TODO: huh, looks the same as the short url regex
 		// Group 1: comic/votey filename
@@ -169,7 +176,7 @@ namespace smbc_downloader {
 			while ((comicURL != null) && (comicURL != "")) {
 				ID++;
 				string pageName = PageName.Replace("{id}", ID.ToString());
-
+				Log("-------------------------------------------------");
 				Log("page file - " + pageName);
 				web.DownloadFile(comicURL, pageName);
 
@@ -178,10 +185,15 @@ namespace smbc_downloader {
 				SaveAssets(one);
 
 				// Update last date and forthisdate
+				Log("b: " + lastDate.ToString(), 4);
+				Log("b: " + one.PublishedDate.Date.ToString(), 4);
+				Log("b: " + (lastDate != one.PublishedDate.Date).ToString(), 4);
 				if (lastDate != one.PublishedDate.Date) {
 					forThisDate = 1;
+					Log("FTD = 1, " + forThisDate.ToString(), 4);
 				} else {
 					forThisDate++;
+					Log("FTD other, " + forThisDate.ToString(), 4);
 				}
 				lastDate = one.PublishedDate.Date;
 
@@ -198,7 +210,7 @@ namespace smbc_downloader {
 		// Convert the page to a Comic object
 		static Comic ParseComicPage(int id, string text, string url, DateTime lastDate, int forThisDate) {
 			Comic one = new Comic();
-
+			Log("f: " + forThisDate.ToString(), 4);
 			// Comic ID
 			one.ID = id;
 			Log("ID: " + id);
@@ -223,12 +235,19 @@ namespace smbc_downloader {
 			}
 
 			// For This Date
+			Log("a " + lastDate.ToString(), 4);
+			Log("a " + one.PublishedDate.Date.ToString(), 4);
+			Log("a " + (lastDate != one.PublishedDate.Date).ToString(), 4);
+			Log("a " + forThisDate, 4);
 			if (lastDate != one.PublishedDate.Date) {
 				one.ForThisDate = 1;
 			} else {
-				one.ForThisDate = forThisDate;
+				// TODO: review, I don't track the logic but +1 is necessary
+				one.ForThisDate = forThisDate + 1;
 			}
 			Log("ForThisDate: " + one.ForThisDate, 1);
+
+			//Console.ReadKey();
 
 			// Next URL
 			matches = nextURLRegex.Matches(text);
@@ -357,17 +376,17 @@ namespace smbc_downloader {
 			// Comic
 			string comicFilename = ComicName.Replace("{name}", one.ComicFilename);
 			web.DownloadFile(one.ComicURL, comicFilename);
-			Log(one.ID + ": Downloaded comic");
+			Log("Downloaded comic");
 
 			// Votey
 			string voteyFilename = VoteyName.Replace("{name}", one.VoteyFilename);
 			web.DownloadFile(one.VoteyURL, voteyFilename);
-			Log(one.ID + ": Downloaded votey");
+			Log("Downloaded votey");
 
 			// Info
 			string jsonFilename = JsonName.Replace("{id}", one.ID.ToString()).Replace("{url}", one.ShortURL);
 			File.WriteAllText(jsonFilename, one.ToJSON());
-			Log(one.ID + ": Saved JSON info");
+			Log("Saved JSON info");
 		}
 
 
@@ -375,7 +394,6 @@ namespace smbc_downloader {
 		static void FixFileNames() {
 			LogFileName = LogFileName.Replace("{now}", NowString);
 			ErrorFileName = ErrorFileName.Replace("{now}", NowString);
-			StartFileName = StartFileName.Replace("{now}", NowString);
 			PageName = PageName.Replace("{now}", NowString);
 			ErrorFileName = ErrorFileName.Replace("{now}", NowString);
 			ComicName = ComicName.Replace("{now}", NowString);
@@ -387,7 +405,6 @@ namespace smbc_downloader {
 		static void Directories() {
 			mkdir(LogFileName);
 			mkdir(ErrorFileName);
-			mkdir(StartFileName);
 			mkdir(PageName);
 			mkdir(ErrorFileName);
 			mkdir(ComicName);
@@ -468,7 +485,7 @@ namespace smbc_downloader {
 
 		static void Log(string message, int level) {
 			if (level <= LogLevel) {
-				message = LogStamp() + message;
+				message = LogStamp() + ID + ": " + message;
 				Console.WriteLine(message);
 				LogFile.WriteLine(message);
 				LogFile.Flush();
@@ -477,7 +494,7 @@ namespace smbc_downloader {
 
 		static void Error(string message) {
 			Log(message);
-			message = LogStamp() + message;
+			message = LogStamp() + ID + ": " + message;
 			ErrorFile.WriteLine(message);
 			ErrorFile.Flush();
 		}

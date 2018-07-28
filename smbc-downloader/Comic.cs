@@ -29,6 +29,7 @@ namespace smbc_downloader {
 		// They are in posted order
 		// So 1 if the only comic of the day. If you have two bonus comics then:
 		// 1 == bonus comic #1, 2 == bonus comic #2, 3 == main comic
+		// Test by starting at https://www.smbc-comics.com/comic/drugs as this is 2017-08-06 and 2017-08-09 has 3 comics
 		public int ForThisDate;
 
 		// The unique bit of the url at the end, also works as a title sort of
