@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -12,7 +13,7 @@ namespace smbc_downloader {
 		// fetch info date, when comic page was scraped
 		public DateTime fetch_date;
 
-		// If there is an error during construction and logging in or json constuction is available
+		// If there is an error during construction and logging in or json constuction is available (TODO: what does this mean?)
 		public string error_message;
 
 		// Which comic is this, the first comic is ID == 1, 
@@ -32,6 +33,9 @@ namespace smbc_downloader {
 
 		// The unique bit of the url at the end, also works as a title sort of
 		public string ShortURL;
+
+		// The actual title
+		public string Title;
 
 		// Filename of the comic
 		public string ComicFilename;
@@ -57,6 +61,15 @@ namespace smbc_downloader {
 		// Url to the "Buy a print" website/shop
 		public string BuyAPrintURL;
 
+		// If there is a news post, this is the title
+		public string TodaysNewsTitle;
+
+		// Content of the news print
+		public string TodaysNewsContent;
+		
+		public Comic() {
+		}
+
 		public Comic(
 				DateTime fetch_date,
 				string error_message,
@@ -72,7 +85,9 @@ namespace smbc_downloader {
 				string TitleText,
 				string ClickURL,
 				string NextURL,
-				string BuyAPrintURL) {
+				string BuyAPrintURL,
+				string TodaysNewsTitle,
+				string TodaysNewsContent) {
 			this.fetch_date = fetch_date;
 			this.error_message = error_message;
 			this.ID = ID;
@@ -88,11 +103,16 @@ namespace smbc_downloader {
 			this.ClickURL = ClickURL;
 			this.NextURL = NextURL;
 			this.BuyAPrintURL = BuyAPrintURL;
+			this.TodaysNewsTitle = TodaysNewsTitle;
+			this.TodaysNewsContent = TodaysNewsContent;
 		}
 
-		public static string AddFromPage(int id, string link, string page) {
+		public string ToJSON() {
+			return JsonConvert.SerializeObject(this);
+		}
 
-			return null;
+		public Comic FromJSON(string text) {
+			return JsonConvert.DeserializeObject<Comic>(text);
 		}
 	}
 }

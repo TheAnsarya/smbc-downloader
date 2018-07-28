@@ -44,7 +44,7 @@ namespace smbc_downloader {
 		
 		// First page downloaded everything parses and progresses from here
 		//static string StartURL = @"https://www.smbc-comics.com/comic/2002-09-05";
-		static string StartURL = @"https://www.smbc-comics.com/comic/bar-joke-2";
+		static string StartURL = @"https://www.smbc-comics.com/comic/autonomous";
 
 
 		/**************************************************************
@@ -65,6 +65,10 @@ namespace smbc_downloader {
 		// Null
 		static DateTime VoidDate = new DateTime(1840, 1, 1);
 
+		// Used to fetch everything
+		static WebClient web;
+
+
 		/**************************************************************
 		/* Regular Expressions
 		 * The heart of this whole thing
@@ -73,11 +77,11 @@ namespace smbc_downloader {
 
 		// Will be two, should be the same, check and error if not but continue
 		// Group 1: url of next comic page
-		static Regex nextUrlRegex = new Regex(@"class=""cc-next"" rel=""next"" href=""(.*?)"">");
+		static Regex nextURLRegex = new Regex(@"class=""cc-next"" rel=""next"" href=""(.*?)"">");
 
 		// Used to grab the short redirect url, also acts as kind of a title
 		// Group 1: unique short redirect url piece
-		static Regex shorUrlRegex = new Regex(@"https:\/\/www.smbc-comics.com\/comic\/(.+)");
+		static Regex shortURLRegex = new Regex(@"https:\/\/www.smbc-comics.com\/comic\/(.+)");
 
 		// The actual title
 		// Group 1: comic title
@@ -88,8 +92,12 @@ namespace smbc_downloader {
 		// Group 3: url of comic image
 		static Regex comicRegex = new Regex(@"<div id=""cc-comicbody""><a href=""(.*?)""><img title=""(.*?)"" src=""(.*?)"" id=""cc-comic"" \/>");
 
-		// Group 1: url of the aftercomic/votey
-		static Regex afterComicRegex = new Regex(@"<div id=""aftercomic"" onclick='toggleBlock\(""aftercomic""\)' style=""display:none;"" class=""mobilehide""><img src='(.*?)'></div>");
+		// TODO: huh, looks the same as the short url regex
+		// Group 1: comic/votey filename
+		static Regex comicNameRegex = new Regex(@"https:\/\/www.smbc-comics.com\/comics\/(.*)");
+
+		// Group 1: url of the votey
+		static Regex voteyRegex = new Regex(@"<div id=""aftercomic"" onclick='toggleBlock\(""aftercomic""\)' style=""display:none;"" class=""mobilehide""><img src='(.*?)'></div>");
 
 		// Group 1: url to the "Buy a print" website/shop
 		static Regex buyAPrintRegex = new Regex(@"<a href=""(.*?)""><img id=""buythisimg"" src=""https://www.smbc-comics.com/images/printme.png"" \/><\/a>");
@@ -97,6 +105,8 @@ namespace smbc_downloader {
 		// This is actually the published time of the top blog post, so it should be the date of comic but you know
 		// Use the first one as that's the most recent comment at time of posting the comment.
 		// Ignore everything > 1(first) for now, incorporate the blog posts later
+		// Group 1: date published
+		// Group 2: time published
 		static Regex publishedDateRegex = new Regex(@"<div class=""cc-publishtime"">Posted (.*?) at (.*?)<\/div>");
 
 		/*
@@ -108,9 +118,11 @@ namespace smbc_downloader {
 		static Regex publishedDateRegex = new Regex(@"<div class=""cc-publishtime"">Posted ([A-Za-z]+) (\d+), (\d{4}) at (\d+:\d\d) (am|pm)<\/div>");
 		*/
 
-		static Regex TodaysNewsTitle = new Regex(@"<div class=""cc-newsarea""><div class=""cc-newsheader"">(.*?)</div>");
+		// Group 1: title of the news post
+		static Regex todaysNewsTitleRegex = new Regex(@"<div class=""cc-newsarea""><div class=""cc-newsheader"">(.*?)</div>");
 
-		static Regex TodaysNewsContent = new Regex(@"<div class=""cc-newsbody""><p>(.*?)</p><div style=""padding:10px;clear:both;"">");
+		// Group 1: content of the news post
+		static Regex todaysNewsContentRegex = new Regex(@"<div class=""cc-newsbody"">(.*?)<div style=""padding:10px;clear:both;""><a href=""http:\/\/www.smbc-comics.com\/smbcforum\/");
 
 
 
@@ -121,8 +133,7 @@ namespace smbc_downloader {
 
 
 		/**************************************************************
-		/* Regular Expressions
-		 * The heart of this whole thing
+		/* Methods
 		/**************************************************************/
 
 		
@@ -140,25 +151,24 @@ namespace smbc_downloader {
 
 			Log("START");
 
-			WebClient web = new WebClient();
+			DateTime lastDate = VoidDate.Date;
+			int forThisDate = 1;
 
+			web = new WebClient();
+			string comicURL = StartURL;
 			string startName = String.Format(StartFileName, Now());
-			Log("start file - " + startName);
-			web.DownloadFile(StartURL, startName);
+			Log("page file - " + startName);
+			web.DownloadFile(comicURL, startName);
 
 			string text = File.ReadAllText(startName);
-			MatchCollection startMatches = publishedDateRegex.Matches(text);
-			Log("start match count - " + startMatches.Count);
-
-			DateTime publishedDate = VoidDate;
-			if (startMatches.Count == 0) {
-				Error("No published date");
+			ID++;
+			Comic one = ParseComicPage(ID, text, comicURL, lastDate, forThisDate);
+			if (lastDate != one.PublishedDate.Date) {
+				forThisDate = 1;
 			} else {
-				publishedDate = DateTime.Parse(startMatches[0].Groups[1].Value + " " + startMatches[0].Groups[2].Value);
-				Log("published date - " + publishedDate.ToString("yyyy-MM-dd_HH-mm-ss-ffff"));
+				forThisDate++;
 			}
-
-
+			lastDate = one.PublishedDate.Date;
 
 
 
@@ -168,6 +178,158 @@ namespace smbc_downloader {
 
 			End();
 		}
+
+		// Convert the page to a Comic object
+		static Comic ParseComicPage(int id, string text, string url, DateTime lastDate, int forThisDate) {
+			Comic one = new Comic();
+
+			// Comic ID
+			one.ID = id;
+
+			// Fetch date
+			one.fetch_date = DateTime.Now;
+
+			// Published date
+			MatchCollection matches = publishedDateRegex.Matches(text);
+			Log("PublishedDate match count - " + matches.Count);
+
+			one.PublishedDate = VoidDate;
+			if (matches.Count == 0) {
+				Error("No PublishedDate");
+			} else {
+				one.PublishedDate = DateTime.Parse(matches[0].Groups[1].Value + " " + matches[0].Groups[2].Value);
+				Log("PublishedDate - " + one.PublishedDate.ToString("yyyy-MM-dd_HH-mm-ss-ffff"));
+			}
+
+			// For This Date
+			if (lastDate != one.PublishedDate.Date) {
+				one.ForThisDate = 1;
+			} else {
+				one.ForThisDate = forThisDate;
+			}
+
+			// Next URL
+			matches = nextURLRegex.Matches(text);
+			Log("NextURL match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No NextURL");
+			} else {
+				one.NextURL = matches[0].Groups[1].Value;
+				Log("NextURL - " + one.NextURL);
+			}
+
+			// Short URL
+			matches = shortURLRegex.Matches(url);
+			Log("ShortURL match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No ShortURL");
+			} else {
+				one.ShortURL = matches[0].Groups[1].Value;
+				Log("ShortURL - " + one.ShortURL);
+			}
+
+			// Title
+			matches = titleRegex.Matches(text);
+			Log("Title match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No Title");
+			} else {
+				one.Title = matches[0].Groups[1].Value;
+				Log("Title - " + one.Title);
+			}
+
+			// CLick URL, Title Text, and Comic URL
+			matches = comicRegex.Matches(text);
+			Log("Comic match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No Comic");
+			} else {
+				// Click URL
+				one.ClickURL = matches[0].Groups[1].Value;
+				Log("ClickURL - " + one.ClickURL);
+
+				// Title Text
+				one.TitleText = matches[0].Groups[2].Value;
+				Log("TitleText - " + one.TitleText);
+
+				// Comic URL
+				one.ComicURL = matches[0].Groups[3].Value;
+				Log("ComicURL - " + one.ComicURL);
+			}
+
+			// Comic Filename
+			matches = comicNameRegex.Matches(one.ComicURL);
+			Log("ComicFilename match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No ComicFilename");
+			} else {
+				one.ComicFilename = matches[0].Groups[1].Value;
+				Log("ComicFilename - " + one.ComicFilename);
+			}
+
+			// Votey
+			matches = voteyRegex.Matches(text);
+			Log("Votey match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No Votey");
+			} else {
+				one.VoteyURL = matches[0].Groups[1].Value;
+				Log("VoteyURL - " + one.VoteyURL);
+			}
+
+			// Votey Filename
+			matches = comicNameRegex.Matches(one.VoteyURL);
+			Log("VoteyFilename match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No VoteyFilename");
+			} else {
+				one.VoteyFilename = matches[0].Groups[1].Value;
+				Log("VoteyFilename - " + one.VoteyFilename);
+			}
+
+			// Buy A Print URL
+			matches = buyAPrintRegex.Matches(text);
+			Log("BuyAPrintURL match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No BuyAPrintURL");
+			} else {
+				one.BuyAPrintURL = matches[0].Groups[1].Value;
+				Log("BuyAPrintURL - " + one.BuyAPrintURL);
+			}
+
+			// Today's News Title
+			matches = todaysNewsTitleRegex.Matches(text);
+			Log("TodaysNewsTitle match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No TodaysNewsTitle");
+			} else {
+				one.TodaysNewsTitle = matches[0].Groups[1].Value;
+				Log("TodaysNewsTitle - " + one.TodaysNewsTitle);
+			}
+
+			// Today's News Content
+			matches = todaysNewsContentRegex.Matches(text);
+			Log("TodaysNewsContent match count - " + matches.Count);
+
+			if (matches.Count == 0) {
+				Error("No TodaysNewsContent");
+			} else {
+				one.TodaysNewsContent = matches[0].Groups[1].Value;
+				Log("TodaysNewsContent - " + one.TodaysNewsContent);
+			}
+
+			return one;
+		}
+
 
 		// Alter/preface?? (find right word) all the file paths with the DateTime the program was started
 		static void FixFileNames() {
@@ -236,6 +398,7 @@ namespace smbc_downloader {
 			}
 		}
 
+		// RNG who art in heaven, hallowed be thy name
 		static Random _rng;
 		static Random RNG {
 			get {
